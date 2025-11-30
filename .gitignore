@@ -15,3 +15,7 @@ imputegap/datasets/fmri-objectviewing.txt
 imputegap/datasets/pollution.txt
 imputegap/datasets/test-large.txt
 *checkpoint.pth
+## Added
+venv/
+external/
+__pycache__/
