@@ -68,21 +68,21 @@ class JointEncoder(tf.keras.Model):
 
 
 class BandedJointEncoder(tf.keras.Model):
-    def __init__(self, z_size, hidden_sizes=(64, 64), window_size=3, data_type=None, **kwargs):
+    def __init__(self, z_size, hidden_sizes=(64, 64), window_size=3, cov_activation="softplus", **kwargs):
         """ Encoder with 1d-convolutional network and multivariate Normal posterior
             Used by GP-VAE with proposed banded covariance matrix
             :param z_size: latent space dimensionality
             :param hidden_sizes: tuple of hidden layer sizes.
                                  The tuple length sets the number of hidden layers.
             :param window_size: kernel size for Conv1D layer
-            :param data_type: needed for some data specific modifications, e.g:
+            :param cov_activation: needed for some data specific modifications, e.g:
                 tf.nn.softplus is a more common and correct choice, however
                 tf.nn.sigmoid provides more stable performance on Physionet dataset
         """
         super(BandedJointEncoder, self).__init__()
         self.z_size = int(z_size)
         self.net = make_cnn(3*z_size, hidden_sizes, window_size)
-        self.data_type = data_type
+        self.cov_activation = cov_activation
 
     def __call__(self, x):
         mapped = self.net(x)
@@ -98,10 +98,12 @@ class BandedJointEncoder(tf.keras.Model):
         mapped_covar = mapped_transposed[:, self.z_size:]
 
         # tf.nn.sigmoid provides more stable performance on Physionet dataset
-        if self.data_type == 'physionet':
+        if self.cov_activation == 'sigmoid':
             mapped_covar = tf.nn.sigmoid(mapped_covar)
-        else:
+        elif self.cov_activation == 'softplus':
             mapped_covar = tf.nn.softplus(mapped_covar)
+        else:
+            raise ValueError(f"The mapped covariance activation given is '{self.cov_activation}', it should be either 'softplus' (default) or 'sigmoid'")
 
         mapped_reshaped = tf.reshape(mapped_covar, [batch_size, self.z_size, 2*time_length])
 

@@ -1,0 +1,57 @@
+# GP-VAE configuration for SPRITES
+
+# -------------------------
+# Data structure
+# -------------------------
+nbr_features: 12288          # number of time series channels
+seq_length: 8                # length of the time series (values)
+
+# -------------------------
+# Misc
+# -------------------------
+M: 1
+K: 1
+activation: relu
+
+# -------------------------
+# Data preprocessor (2d CNN), used for computer vision dataset
+# -------------------------
+image_preprocessor: True
+cnn_kernel_size: 3
+cnn_sizes: [256]              # Number of filters for each layer
+image_shape: (64,64,3)
+
+# -------------------------
+# Encoder (CNN)
+# -------------------------
+encoder_sizes: [32, 256, 256]   # Layer sizes of the encoder
+window_size: 3                  # Windows size for the encoder CNN
+cov_activation: sigmoid         # (<sigmoid|softplus>), encoder mapped covariance activation
+
+# -------------------------
+# Latent space
+# -------------------------
+latent_dim: 256           # Dimensionality of latent space
+
+# -------------------------
+# GP kernel parameters
+# -------------------------
+kernel: cauchy            # (<rbf|diffusion|matern|cauchy>) used for the GP prior
+sigma: 1.0              
+length_scale: 2.0       
+kernel_scales: 1        
+
+# -------------------------
+# Generative network
+# -------------------------
+decoder_sizes: [256, 256, 256]    # 2 feedforward layers, width 256
+decoder_type: GaussianDecoder   # (<GaussianDecoder|BernoulliDecoder>) define output distribution
+
+# -------------------------
+# Training hyperparameters
+# -------------------------
+learning_rate: 0.001
+optimizer: adam
+epoch: 20
+beta: 0.1
+gradient_clip: 10000.0    # Maximum global gradient norm for the gradient clipping

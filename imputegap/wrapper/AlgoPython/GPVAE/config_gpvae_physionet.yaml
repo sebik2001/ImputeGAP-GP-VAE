@@ -1,0 +1,63 @@
+# GP-VAE configuration for PHYSIONET
+
+# -------------------------
+# Dataset splits 
+# -------------------------
+splits: [3997, 3993, 3997]      # nr of samples in train, val, test
+
+
+# -------------------------
+# Data structure
+# -------------------------
+nbr_features: 35          # number of time series channels
+seq_length: 48            # length of the time series (values)
+
+# -------------------------
+# Misc
+# -------------------------
+M: 1
+K: 1
+activation: relu
+
+# -------------------------
+# Data preprocessor (2d CNN), used for computer vision dataset
+# -------------------------
+image_preprocessor: false
+cnn_kernel_size: None
+cnn_sizes: None            # Number of filters for each layer 
+image_shape: None
+
+# -------------------------
+# Encoder (CNN)
+# -------------------------
+encoder_sizes: [128, 128]   # Layer sizes of the encoder
+window_size: 24             # Windows size for the encoder CNN
+cov_activation: sigmoid         # (<sigmoid|softplus>), encoder mapped covariance activation
+
+# -------------------------
+# Latent space
+# -------------------------
+latent_dim: 35           # Dimensionality of latent space
+
+# -------------------------
+# GP kernel parameters
+# -------------------------
+kernel: cauchy          # (<rbf|diffusion|matern|cauchy>) used for the GP prior
+sigma: 1.005
+length_scale: 7.0       
+kernel_scales: 1         
+
+# -------------------------
+# Generative network
+# -------------------------
+decoder_sizes: [256, 256]       # 2 feedforward layers, width 256
+decoder_type: GaussianDecoder   # (<GaussianDecoder|BernoulliDecoder>) defines output distribution
+
+# -------------------------
+# Training hyperparameters
+# -------------------------
+learning_rate: 0.001
+optimizer: adam
+epoch: 40
+beta: 0.2
+gradient_clip: 10000.0    # Maximum global gradient norm for the gradient clipping 

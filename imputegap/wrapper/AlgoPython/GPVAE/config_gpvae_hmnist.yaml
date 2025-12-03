@@ -1,0 +1,57 @@
+# GP-VAE configuration for HMNIST
+
+# -------------------------
+# Data structure
+# -------------------------
+nbr_features: 784             # number of time series channels
+seq_length: 10                # length of the time series (values)
+
+# -------------------------
+# Misc
+# -------------------------
+M: 1                      # Number of importance sampling weights
+K: 1                      # Number of samples for ELBO estimation
+activation: relu
+
+# -------------------------
+# Data preprocessor (2d CNN), used for computer vision dataset
+# -------------------------
+image_preprocessor: True
+cnn_kernel_size: 3
+cnn_sizes: [256]             # Number of filters for each layer
+image_shape: (28,28,1)
+
+# -------------------------
+# Encoder (CNN)
+# -------------------------
+encoder_sizes: [256, 256]       # Layer sizes of the encoder
+window_size: 3                  # Windows size for the encoder CNN
+cov_activation: sigmoid         # (<sigmoid|softplus>), encoder mapped covariance activation
+
+# -------------------------
+# Latent space
+# -------------------------
+latent_dim: 256           # Dimensionality of latent space
+
+# -------------------------
+# GP kernel parameters
+# -------------------------
+kernel: cauchy           # (<rbf|diffusion|matern|cauchy>) used for the GP prior
+sigma: 1.0              
+length_scale: 2.0       
+kernel_scales: 1         
+
+# -------------------------
+# Generative network
+# -------------------------
+decoder_sizes: [256, 256, 256]    # 3 feedforward layers, width 256
+decoder_type: BernoulliDecoder   # (<GaussianDecoder|BernoulliDecoder>) define output distribution
+
+# -------------------------
+# Training hyperparameters
+# -------------------------
+learning_rate: 0.001
+optimizer: adam
+epoch: 20
+beta: 0.8
+gradient_clip: 10000.0    # Maximum global gradient norm for the gradient clipping
