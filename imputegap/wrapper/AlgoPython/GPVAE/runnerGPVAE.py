@@ -1,17 +1,15 @@
 import os
 import yaml
 import time
+import copy
 from tqdm import tqdm
 
 import numpy as np
-import pandas as pd
 import tensorflow as tf
 from imputegap.wrapper.AlgoPython.GPVAE.models.models import BandedJointEncoder, GP_VAE, GaussianDecoder, BernoulliDecoder, ImagePreprocessor 
 
 
-def train(model, incomp_data, m_mask, splits, nbr_features, seq_length, latent_dim, batch_size, epoch, learning_rate, gradient_clip, verbose=True):
-
-    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+def train(model, incomp_data, m_mask, splits, nbr_features, seq_length, latent_dim, batch_size, epoch, scheduler_cfg, learning_rate, gradient_clip, outdir, verbose=True):    
 
     if verbose:
         # pass a dummy input to both encoder and decoder in order to get the summaries
@@ -22,15 +20,6 @@ def train(model, incomp_data, m_mask, splits, nbr_features, seq_length, latent_d
         print("Encoder: ", model.encoder.net.summary())
         print("Decoder: ", model.decoder.net.summary())
     
-    if model.preprocessor is not None:
-        # print("Preprocessor: ", model.preprocessor.net.summary())
-        saver = tf.train.Checkpoint(optimizer=optimizer, encoder=model.encoder.net,
-                                              decoder=model.decoder.net, preprocessor=model.preprocessor.net)
-    else:
-        saver = tf.train.Checkpoint(optimizer=optimizer, encoder=model.encoder.net, decoder=model.decoder.net)
-
-    # TODO: set how to pass the imputegap assets
-    outdir = './imputegap_assets/models/' + "exp_test"
     checkpoint_prefix = os.path.join(outdir, "ckpt")
     summary_writer = tf.summary.create_file_writer(outdir)
     summary_writer.set_as_default()
@@ -38,20 +27,50 @@ def train(model, incomp_data, m_mask, splits, nbr_features, seq_length, latent_d
     x_train_miss = incomp_data[:splits[0]]
     m_train_miss = m_mask[:splits[0]]
 
-    x_val_miss = incomp_data[:splits[0]]
-    m_val_miss = incomp_data[:splits[0]]
+    x_val_miss = incomp_data[splits[0]:splits[0]+splits[1]]
+    m_val_miss = incomp_data[splits[0]:splits[0]+splits[1]]
 
     num_steps = epoch * len(x_train_miss) // batch_size
 
     print_interval = num_steps // epoch
 
+    decay_steps = print_interval*10
+
+    if scheduler_cfg["type"] == "ExponentialDecay":
+        lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+            initial_learning_rate=learning_rate,
+            decay_steps=decay_steps,
+            decay_rate=scheduler_cfg.get("decay_rate", 0.5),
+            staircase=scheduler_cfg.get("staircase", True)
+        )
+    elif scheduler_cfg["type"] == "CosineDecay":
+        lr_schedule = tf.keras.optimizers.schedules.CosineDecay(
+            initial_learning_rate=learning_rate,
+            decay_steps=decay_steps,
+            alpha=scheduler_cfg.get("alpha", 0.0)
+        )
+    else:
+        lr_schedule = learning_rate  # constant learning rate
+    
+    optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
+    
+    if model.preprocessor is not None:
+        # print("Preprocessor: ", model.preprocessor.net.summary())
+        saver = tf.train.Checkpoint(optimizer=optimizer, encoder=model.encoder.net,
+                                              decoder=model.decoder.net, preprocessor=model.preprocessor.net)
+    else:
+        saver = tf.train.Checkpoint(optimizer=optimizer, encoder=model.encoder.net, decoder=model.decoder.net)
+    
     tf_x_train_miss = tf.data.Dataset.from_tensor_slices((x_train_miss, m_train_miss))\
                                      .shuffle(len(x_train_miss)).batch(batch_size).repeat()
-    tf_x_val_miss = tf.data.Dataset.from_tensor_slices((x_val_miss, m_val_miss)).batch(batch_size).repeat()
-    tf_x_val_miss = tf.compat.v1.data.make_one_shot_iterator(tf_x_val_miss)
+    tf_x_val_miss = tf.data.Dataset.from_tensor_slices((x_val_miss, m_val_miss)).batch(batch_size)
 
     losses_train = []
+    kl_losses_train = []
+    nll_losses_train = []
     losses_val = []
+    kl_losses_val = []
+    nll_losses_val = []
 
     t0 = time.time()
     global_step = 0
@@ -59,9 +78,10 @@ def train(model, incomp_data, m_mask, splits, nbr_features, seq_length, latent_d
         for i, (x_seq, m_seq) in tqdm(enumerate(tf_x_train_miss.take(num_steps)), total=num_steps, desc="Training progress"):
             try:
                 with tf.GradientTape() as tape:
-                    # tape.watch(trainable_vars)
-                    loss = model.compute_loss(x_seq, m_mask=m_seq)
+                    loss, nll, kl = model.compute_loss(x_seq, m_mask=m_seq, return_parts=True)
                     losses_train.append(loss.numpy())
+                    nll_losses_train.append(nll.numpy())
+                    kl_losses_train.append(kl.numpy())
                 
                 trainable_vars = model.get_trainable_vars()
                 grads = tape.gradient(loss, trainable_vars)
@@ -69,15 +89,12 @@ def train(model, incomp_data, m_mask, splits, nbr_features, seq_length, latent_d
                 grads, global_norm = tf.clip_by_global_norm(grads, gradient_clip)
                 optimizer.apply_gradients(zip(grads, trainable_vars))
 
-                # Update progress bar postfix
-                # tqdm.write(f"[Step {i}] Loss: {loss.numpy():.3f}, Grad norm: {global_norm:.2f}")
-
                 # Print intermediate results
                 if i % print_interval == 0:
                     print("================================================")
                     print("Learning rate: {} | Global gradient norm: {:.2f}".format(optimizer.learning_rate, global_norm))
                     print("Step {}) Time = {:2f}".format(i, time.time() - t0))
-                    loss, nll, kl = model.compute_loss(x_seq, m_mask=m_seq, return_parts=True)
+                    # loss, nll, kl = model.compute_loss(x_seq, m_mask=m_seq, return_parts=True)
                     print("Train loss = {:.3f} | NLL = {:.3f} | KL = {:.3f}".format(loss, nll, kl))
 
                     saver.save(checkpoint_prefix)
@@ -87,93 +104,75 @@ def train(model, incomp_data, m_mask, splits, nbr_features, seq_length, latent_d
                     summary_writer.flush()
 
                     # Validation loss
-                    x_val_batch, m_val_batch = tf_x_val_miss.get_next()
-                    val_loss, val_nll, val_kl = model.compute_loss(x_val_batch, m_mask=m_val_batch, return_parts=True)
-                    losses_val.append(val_loss.numpy())
-                    print("Validation loss = {:.3f} | NLL = {:.3f} | KL = {:.3f}".format(val_loss, val_nll, val_kl))
+                    losses_val_batches = []
+                    for x_val_batch, m_val_batch in tf_x_val_miss:
+                        # x_val_batch, m_val_batch = tf_x_val_miss.get_next()
+                        val_loss, val_nll, val_kl = model.compute_loss(x_val_batch, m_mask=m_val_batch, return_parts=True)
+                        losses_val_batches.append([val_loss.numpy(), val_nll.numpy(), val_kl.numpy()])
 
-                    tf.summary.scalar("loss_val", val_loss, step=global_step)
-                    tf.summary.scalar("kl_val", val_kl, step=global_step)
-                    tf.summary.scalar("nll_val", val_nll, step=global_step)
+                    losses_val_batches = np.array(losses_val_batches)
+                    # mean across batches
+                    avg_losses = np.mean(losses_val_batches, axis=0) 
+
+                    losses_val.append(avg_losses[0])
+                    nll_losses_val.append(avg_losses[1])
+                    kl_losses_val.append(avg_losses[2])
+                    print("Validation loss = {:.3f} | NLL = {:.3f} | KL = {:.3f}".format(avg_losses[0], avg_losses[1], avg_losses[2]))
+
+                    tf.summary.scalar("loss_val", avg_losses[0], step=global_step)
+                    tf.summary.scalar("nll_val", avg_losses[1], step=global_step)
+                    tf.summary.scalar("kl_val", avg_losses[2], step=global_step)
                     summary_writer.flush()
 
                     global_step += 1
 
+                    t0 = time.time()
+                else:
+                    losses_val.append(None)
+                    nll_losses_val.append(None)
+                    kl_losses_val.append(None)
 
-                    # if FLAGS.data_type in ["hmnist", "sprites"]:
-                    #     # Draw reconstructed images
-                    #     x_hat = model.decode(model.encode(x_seq).sample()).mean()
-                    #     tf.summary.image("input_train", tf.reshape(x_seq, [-1]+list(img_shape)), step=global_step)
-                    #     tf.summary.image("reconstruction_train", tf.reshape(x_hat, [-1]+list(img_shape)), step=global_step)
-                    # elif FLAGS.data_type == 'physionet':
-                    #     # Eval MSE and AUROC on entire val set
-                    #     x_val_miss_batches = np.array_split(x_val_miss, FLAGS.batch_size, axis=0)
-                    #     x_val_full_batches = np.array_split(x_val_full, FLAGS.batch_size, axis=0)
-                    #     m_val_artificial_batches = np.array_split(m_val_artificial, FLAGS.batch_size, axis=0)
-                    #     get_val_batches = lambda: zip(x_val_miss_batches, x_val_full_batches, m_val_artificial_batches)
-
-                    #     n_missings = m_val_artificial.sum()
-                    #     mse_miss = np.sum([model.compute_mse(x, y=y, m_mask=m).numpy()
-                    #                        for x, y, m in get_val_batches()]) / n_missings
-
-                    #     x_val_imputed = np.vstack([model.decode(model.encode(x_batch).mean()).mean().numpy()
-                    #                                for x_batch in x_val_miss_batches])
-                    #     x_val_imputed[m_val_miss == 0] = x_val_miss[m_val_miss == 0]  # impute gt observed values
-
-                    #     x_val_imputed = x_val_imputed.reshape([-1, time_length * data_dim])
-                    #     val_split = len(x_val_imputed) // 2
-                    #     cls_model = LogisticRegression(solver='liblinear', tol=1e-10, max_iter=10000)
-                    #     cls_model.fit(x_val_imputed[:val_split], y_val[:val_split])
-                    #     probs = cls_model.predict_proba(x_val_imputed[val_split:])[:, 1]
-                    #     auroc = roc_auc_score(y_val[val_split:], probs)
-                    #     print("MSE miss: {:.4f} | AUROC: {:.4f}".format(mse_miss, auroc))
-
-                    #     # Update learning rate (used only for physionet with decay=0.5)
-                    #     if i > 0 and i % (10*FLAGS.print_interval) == 0:
-                    #         # optimizer._lr = max(0.5 * optimizer._lr, 0.1 * FLAGS.learning_rate)
-                    #         new_lr = max(0.5 * float(optimizer.learning_rate.numpy()), 0.1 * FLAGS.learning_rate)
-                    #         optimizer.learning_rate.assign(new_lr)
-                    # t0 = time.time()
             except KeyboardInterrupt:
                 saver.save(checkpoint_prefix)
                 break
 
+    with open(os.path.join(outdir, "training_curve.tsv"), "w") as outfile:
+        data = np.array([losses_train, losses_val, nll_losses_train, nll_losses_val, kl_losses_train, kl_losses_val]).transpose()
+        header = ["train_loss", "val_loss", "train_nll", "val_nll", "train_kl", "val_kl"]
+        outfile.write("\t".join(header) + "\n")
+        for row in data:
+            outfile.write("\t".join(map(str, row.tolist())) + "\n")
 
-# def train(model, input, batch_size, epochs, num_workers=0, verbose=True):
-#     optimizer = optim.Adam(model.parameters(), lr=1e-3)
-#     data_iter = data_loader.get_loader(input, batch_size=batch_size, num_workers=num_workers)
-#     for epoch in range(0, epochs):
-#         model.train()
-#         run_loss = 0.0
-
-#         for idx, data in enumerate(data_iter):  # 4
-#             data = utilsX.to_var(data)
-#             ret = model.run_on_batch(data, optimizer)
-#             run_loss += ret['loss'].data
-
-#             forward = data["forward"]
-#             values = forward['values']
-
-#             if verbose:
-#                 print('\r Progress epoch {}, {:.2f}%, batch {} [{}], average loss {}'.format(epoch, (idx + 1) * 100.0 / len(data_iter), idx, values.shape, run_loss / (idx + 1.0)))
-
-#     return (model, data_iter)
+    
+    return model
 
 
-# def evaluate(model, val_iter):
-#     model.eval()
-#     imputations = []
+# incomp_data: (S, V, T), S: samples, V: values, T: time series, NaN values substituted
+# with 0.0
+def impute(model, incomp_data, inference_batch_size):
+    # create batches
+    incomp_data_batches = [incomp_data[i: i+inference_batch_size] for i in range(0, len(incomp_data), inference_batch_size)]
+    
+    batch_recoveries = []
 
-#     for idx, data in enumerate(val_iter):
-#         data = utilsX.to_var(data)
-#         ret = model.run_on_batch(data, None)
-#         imputation = ret['imputations'].data.cpu().numpy()
-#         imputations += imputation.tolist()
+    for batch in tqdm(incomp_data_batches, desc="Imputing progress"):
+        # pass the incomp data to the encoder
+        encoder_output = model.encode(batch)
 
-#     imputations = np.asarray(imputations)
-#     return imputations
+        # pass enconder's output most probable latent trajectory to the decoder
+        decoder_output = model.decode(encoder_output.mean())
 
-def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=None, batch_size=None, beta=None, learning_rate=None, sigma=None, length_scale=None, kernel_scales=None, verbose=True, seed=77):
+        # most probable data space trajectory
+        batch_recovery = decoder_output.mean().numpy()
+
+        batch_recoveries.append(batch_recovery)
+    
+    recovery = np.concatenate(batch_recoveries, axis=0)
+
+    return recovery
+
+
+def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=None, batch_size=None, beta=None, learning_rate=None, sigma=None, length_scale=None, kernel_scales=None, inference_batch_size=None, verbose=True, seed=77):
     recov = np.copy(incomp_data)
     m_mask = np.isnan(incomp_data)
 
@@ -212,24 +211,29 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
         raise ValueError(f"Unknown decoder class: {decoder_type}")
     
     gradient_clip = cfg.get("gradient_clip", 10000.0)
-    
+
     # use the one from the config if not passed as arguments
     epoch = cfg["epoch"] if epoch is None else epoch
     batch_size = cfg["batch_size"] if batch_size is None else batch_size
     beta = cfg["beta"] if beta is None else beta
-    learning_rate = cfg["learning_rate"] if learning_rate is None else learning_rate
+    learning_rate = cfg["optimizer"]["learning_rate"] if learning_rate is None else learning_rate
     sigma = cfg["sigma"] if sigma is None else sigma
     length_scale = cfg["length_scale"] if length_scale is None else length_scale
     kernel_scales = cfg["kernel_scales"] if kernel_scales is None else kernel_scales
-    
+    inference_batch_size = cfg["inference_batch_size"] if inference_batch_size is None else inference_batch_size
+
+    # learning rate scheduler
+    scheduler_cfg = cfg["optimizer"].get("scheduler", {"type": None})
+
     #---------------------- Reshape the data to (B,V,T) ------------------------
     recov = recov.transpose().reshape(-1, seq_length, nbr_features)  
     incomp_data = incomp_data.transpose().reshape(-1, seq_length, nbr_features)
     m_mask = m_mask.transpose().reshape(-1, seq_length, nbr_features)
 
+    # incomp_data contains NaN values, set NaN to 0.0
+    incomp_data_model = np.nan_to_num(incomp_data, nan=0.0)
     # cast to float32 (net compatibility)
-    incomp_data = incomp_data.astype(np.float32)
-    # m_mask = m_mask.astype(np.float32)
+    incomp_data_model = incomp_data_model.astype(np.float32)
 
     #---------------------- Build the model ---------------------------------
     model = GP_VAE(
@@ -253,47 +257,75 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
     )
 
     #---------------- Reload the model ------------------------------
-    if model_checkpoint_path and os.path.exists(model_checkpoint_path):
-        if image_preprocessor:
-            checkpoint = tf.train.Checkpoint(
-                encoder=model.encoder.net,
-                decoder=model.decoder.net,
-                preprocessor=model.preprocessor.net
-            )
+    if model_checkpoint_path is not None:
+        if not os.path.exists(model_checkpoint_path):
+            print("Invalid Path to the model checkpoint!")
         else:
-            checkpoint = tf.train.Checkpoint(
-                encoder=model.encoder.net,
-                decoder=model.decoder.net,
-            )
+            if image_preprocessor:
+                checkpoint = tf.train.Checkpoint(
+                    encoder=model.encoder.net,
+                    decoder=model.decoder.net,
+                    preprocessor=model.preprocessor.net
+                )
+            else:
+                checkpoint = tf.train.Checkpoint(
+                    encoder=model.encoder.net,
+                    decoder=model.decoder.net,
+                )
 
-        # restore the latest checkpoint
-        latest = tf.train.latest_checkpoint(model_checkpoint_path)
-        checkpoint.restore(latest).expect_partial()
-        print("Checkpoint successfully restored.")
+            # restore the latest checkpoint
+            latest = tf.train.latest_checkpoint(model_checkpoint_path)
+            checkpoint.restore(latest).expect_partial()
+            print("Checkpoint successfully restored.")
         
     # --------------Train the model -------------------------------
     else:
-        # TODO train the model
-        print("Start model training...")
-        train(model, incomp_data, m_mask, splits, nbr_features, seq_length, latent_dim, batch_size, epoch, learning_rate, gradient_clip, verbose=verbose)
-        print("Finished training")
+        start_time_train = time.time()
+
+        if verbose: print("Starting model training...")
+        
+        outdir = './imputegap_assets/models/' + time.strftime("%Y%m%d_%H%M%S")
+
+        model = train(model, incomp_data_model, m_mask, splits, nbr_features, seq_length, latent_dim, batch_size, epoch, scheduler_cfg, learning_rate, gradient_clip, outdir, verbose=verbose)
+
+        end_time_train = time.time()
+
+        if verbose: print(f"\n> logs: Training gpvae - Execution Time: {(end_time_train - start_time_train):.4f} seconds\n")
+
+        # save a .yaml file containing details about the training
+        updated_cfg = copy.deepcopy(cfg)
+
+        updated_cfg["epoch"] = epoch
+        updated_cfg["batch_size"] = batch_size
+        updated_cfg["optimizer"]["learning_rate"] = learning_rate
+        updated_cfg["beta"] = beta
+        updated_cfg["sigma"] = sigma
+        updated_cfg["length_scale"] = length_scale
+        updated_cfg["kernel_scales"] = kernel_scales
+        updated_cfg["inference_batch_size"] = inference_batch_size
+
+        updated_cfg["metadata"] = {
+            "training_duration_sec": float(np.round(end_time_train - start_time_train, 4))
+        }
+
+        with open(os.path.join(outdir, config_yaml_path.split('/')[-1]), 'w') as file:
+            yaml.dump(updated_cfg, file, sort_keys=False)
     
 
     # ---------------- Impute data --------------------------------------
-    # incomp_data contains NaN values, set NaN to 0.0
-    incomp_data_model = np.nan_to_num(incomp_data, nan=0.0)
+    start_time_impute = time.time()
 
-    # pass the incomp data to the encoder
-    encoder_output = model.encode(incomp_data_model)
+    if verbose: print("Starting imputation...")
 
-    # pass enconder's output most probable latent trajectory to the decoder
-    decoder_output = model.decode(encoder_output.mean())
+    recovery = impute(model, incomp_data_model, inference_batch_size)
 
-    # most probable data space trajectory
-    recovery = decoder_output.mean().numpy()
+    end_time_impute = time.time()
+
+    if verbose: print(f"\n> logs: Imputing with gpvae - Execution Time: {(end_time_impute - start_time_impute):.4f} seconds\n")
 
     recov[m_mask] = recovery[m_mask]
 
     # reshape (B, V, T) -> (T, B*V)
     recov = recov.transpose(2,0,1).reshape(nbr_features, -1)
+    
     return recov

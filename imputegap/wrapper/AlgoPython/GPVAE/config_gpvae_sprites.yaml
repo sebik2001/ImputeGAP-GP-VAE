@@ -1,6 +1,12 @@
 # GP-VAE configuration for SPRITES
 
 # -------------------------
+# Dataset splits 
+# -------------------------
+splits: [60000, 10000, 3997]      # nr of samples in train, val, test
+inference_batch_size: 128
+
+# -------------------------
 # Data structure
 # -------------------------
 nbr_features: 12288          # number of time series channels
@@ -19,7 +25,7 @@ activation: relu
 image_preprocessor: True
 cnn_kernel_size: 3
 cnn_sizes: [256]              # Number of filters for each layer
-image_shape: (64,64,3)
+image_shape: [64,64,3]
 
 # -------------------------
 # Encoder (CNN)
@@ -50,8 +56,11 @@ decoder_type: GaussianDecoder   # (<GaussianDecoder|BernoulliDecoder>) define ou
 # -------------------------
 # Training hyperparameters
 # -------------------------
-learning_rate: 0.001
-optimizer: adam
+optimizer:
+  type: Adam
+  learning_rate: 0.001
+  scheduler:
+    type: Constant
 epoch: 20
 beta: 0.1
 gradient_clip: 10000.0    # Maximum global gradient norm for the gradient clipping
