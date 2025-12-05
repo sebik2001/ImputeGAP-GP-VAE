@@ -9,12 +9,17 @@ import tensorflow as tf
 from imputegap.wrapper.AlgoPython.GPVAE.models.models import BandedJointEncoder, GP_VAE, GaussianDecoder, BernoulliDecoder, ImagePreprocessor 
 
 
-def train(model, incomp_data, m_mask, splits, nbr_features, seq_length, latent_dim, batch_size, epoch, scheduler_cfg, learning_rate, gradient_clip, outdir, verbose=True):    
+def train(model, incomp_data, m_mask, splits, nbr_features, seq_length, image_shape, latent_dim, batch_size, epoch, scheduler_cfg, learning_rate, gradient_clip, outdir, verbose=True):    
 
     if verbose:
         # pass a dummy input to both encoder and decoder in order to get the summaries
         dummy_encoder = tf.zeros([1, seq_length, nbr_features])
         dummy_decoder = tf.zeros([1, seq_length, latent_dim])
+        if image_shape:
+            dummy_preprocessor = tf.zeros([1, *image_shape])
+            model.preprocessor(dummy_preprocessor)
+            print("Preprocessor: ", model.preprocessor.net.summary())
+
         model.encoder(dummy_encoder)
         model.decoder(dummy_decoder)
         print("Encoder: ", model.encoder.net.summary())
@@ -55,7 +60,6 @@ def train(model, incomp_data, m_mask, splits, nbr_features, seq_length, latent_d
     optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
     
     if model.preprocessor is not None:
-        # print("Preprocessor: ", model.preprocessor.net.summary())
         saver = tf.train.Checkpoint(optimizer=optimizer, encoder=model.encoder.net,
                                               decoder=model.decoder.net, preprocessor=model.preprocessor.net)
     else:
@@ -106,14 +110,13 @@ def train(model, incomp_data, m_mask, splits, nbr_features, seq_length, latent_d
                     # Validation loss
                     losses_val_batches = []
                     for x_val_batch, m_val_batch in tf_x_val_miss:
-                        # x_val_batch, m_val_batch = tf_x_val_miss.get_next()
                         val_loss, val_nll, val_kl = model.compute_loss(x_val_batch, m_mask=m_val_batch, return_parts=True)
                         losses_val_batches.append([val_loss.numpy(), val_nll.numpy(), val_kl.numpy()])
 
                     losses_val_batches = np.array(losses_val_batches)
                     # mean across batches
-                    avg_losses = np.mean(losses_val_batches, axis=0) 
-
+                    avg_losses = np.mean(losses_val_batches, axis=0)
+                    
                     losses_val.append(avg_losses[0])
                     nll_losses_val.append(avg_losses[1])
                     kl_losses_val.append(avg_losses[2])
@@ -194,8 +197,9 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
     window_size = cfg.get("window_size", 24)
     kernel = cfg.get("kernel", "cauchy")
     image_preprocessor = cfg.get("image_preprocessor", False)
+    image_shape = cfg.get('image_shape', None)
     if image_preprocessor:
-        image_preprocessor = ImagePreprocessor(cfg["image_shape"], cfg['cnn_sizes'], cfg['cnn_kernel_size'])
+        image_preprocessor = ImagePreprocessor(image_shape, cfg['cnn_sizes'], cfg['cnn_kernel_size'])
     else:
         image_preprocessor = None
     M = cfg.get("M", 1)
@@ -286,7 +290,7 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
         
         outdir = './imputegap_assets/models/' + time.strftime("%Y%m%d_%H%M%S")
 
-        model = train(model, incomp_data_model, m_mask, splits, nbr_features, seq_length, latent_dim, batch_size, epoch, scheduler_cfg, learning_rate, gradient_clip, outdir, verbose=verbose)
+        model = train(model, incomp_data_model, m_mask, splits, nbr_features, seq_length, image_shape, latent_dim, batch_size, epoch, scheduler_cfg, learning_rate, gradient_clip, outdir, verbose=verbose)
 
         end_time_train = time.time()
 

@@ -3,8 +3,9 @@
 # -------------------------
 # Dataset splits 
 # -------------------------
-splits: [60000, 10000, 3997]      # nr of samples in train, val, test
-inference_batch_size: 128
+# splits: [72000, 21312]      # nr of samples in train, val, test
+splits: [900, 100]
+inference_batch_size: 64
 
 # -------------------------
 # Data structure
