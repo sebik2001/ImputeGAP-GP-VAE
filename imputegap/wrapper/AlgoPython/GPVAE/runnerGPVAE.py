@@ -9,22 +9,7 @@ import tensorflow as tf
 from imputegap.wrapper.AlgoPython.GPVAE.models.models import BandedJointEncoder, GP_VAE, GaussianDecoder, BernoulliDecoder, ImagePreprocessor 
 
 
-def train(model, incomp_data, m_mask, splits, nbr_features, seq_length, image_shape, latent_dim, batch_size, epoch, scheduler_cfg, learning_rate, gradient_clip, outdir, verbose=True):    
-
-    if verbose:
-        # pass a dummy input to both encoder and decoder in order to get the summaries
-        dummy_encoder = tf.zeros([1, seq_length, nbr_features])
-        dummy_decoder = tf.zeros([1, seq_length, latent_dim])
-        if image_shape:
-            dummy_preprocessor = tf.zeros([1, *image_shape])
-            model.preprocessor(dummy_preprocessor)
-            print("Preprocessor: ", model.preprocessor.net.summary())
-
-        model.encoder(dummy_encoder)
-        model.decoder(dummy_decoder)
-        print("Encoder: ", model.encoder.net.summary())
-        print("Decoder: ", model.decoder.net.summary())
-    
+def train(model, incomp_data, m_mask, splits, batch_size, epoch, scheduler_cfg, learning_rate, gradient_clip, outdir):
     checkpoint_prefix = os.path.join(outdir, "ckpt")
     summary_writer = tf.summary.create_file_writer(outdir)
     summary_writer.set_as_default()
@@ -175,7 +160,27 @@ def impute(model, incomp_data, inference_batch_size):
     return recovery
 
 
-def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=None, batch_size=None, beta=None, learning_rate=None, sigma=None, length_scale=None, kernel_scales=None, inference_batch_size=None, verbose=True, seed=77):
+def evaluate(model, incomp_data, ground_truth, mask, inference_batch_size, binary=True):
+    assert incomp_data.shape == ground_truth.shape and incomp_data.shape == mask.shape, f"incomp_data, gt and mask shape have to be the same, respectively {incomp_data.shape}, {ground_truth.shape}, {mask.shape}"
+    
+    incomp_data_batches = [incomp_data[i: i+inference_batch_size] for i in range(0, len(incomp_data), inference_batch_size)]
+    ground_truth_batches = [ground_truth[i: i+inference_batch_size] for i in range(0, len(ground_truth), inference_batch_size)]
+    mask_batches = [mask[i: i+inference_batch_size] for i in range(0, len(mask), inference_batch_size)]
+
+    get_val_batches = lambda: zip(incomp_data_batches, ground_truth_batches, mask_batches)
+
+    n_missings = mask.sum()
+
+    nll_miss = np.sum([model.compute_nll(x, y=y, m_mask=m).numpy()
+                       for x, y, m in get_val_batches()]) / n_missings
+    mse_miss = np.sum([model.compute_mse(x, y=y, m_mask=m, binary=binary).numpy()
+                       for x, y, m in get_val_batches()]) / n_missings
+    
+    return {"nll": nll_miss, "mse": mse_miss}
+
+
+
+def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=None, batch_size=None, beta=None, learning_rate=None, sigma=None, length_scale=None, kernel_scales=None, inference_batch_size=None, ground_truth=None, return_no_gt_imputation=False, verbose=True):
     recov = np.copy(incomp_data)
     m_mask = np.isnan(incomp_data)
 
@@ -206,7 +211,7 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
     K = cfg.get("K", 1)
 
     # Select decoder class based on YAML or default
-    decoder_type = cfg.get("encoder_type", "GaussianDecoder")
+    decoder_type = cfg.get("decoder_type", "GaussianDecoder")
     if decoder_type == "GaussianDecoder":
         decoder = GaussianDecoder
     elif decoder_type == "BernoulliDecoder":
@@ -260,6 +265,20 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
         cov_activation=cov_activation
     )
 
+    if verbose:
+        # pass a dummy input to both encoder and decoder in order to get the summaries
+        dummy_encoder = tf.zeros([1, seq_length, nbr_features])
+        dummy_decoder = tf.zeros([1, seq_length, latent_dim])
+        if image_shape:
+            dummy_preprocessor = tf.zeros([1, *image_shape])
+            model.preprocessor(dummy_preprocessor)
+            print("Preprocessor: ", model.preprocessor.net.summary())
+
+        model.encoder(dummy_encoder)
+        model.decoder(dummy_decoder)
+        print("Encoder: ", model.encoder.net.summary())
+        print("Decoder: ", model.decoder.net.summary())
+
     #---------------- Reload the model ------------------------------
     if model_checkpoint_path is not None:
         if not os.path.exists(model_checkpoint_path):
@@ -290,7 +309,7 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
         
         outdir = './imputegap_assets/models/' + time.strftime("%Y%m%d_%H%M%S")
 
-        model = train(model, incomp_data_model, m_mask, splits, nbr_features, seq_length, image_shape, latent_dim, batch_size, epoch, scheduler_cfg, learning_rate, gradient_clip, outdir, verbose=verbose)
+        model = train(model, incomp_data_model, m_mask, splits, batch_size, epoch, scheduler_cfg, learning_rate, gradient_clip, outdir, verbose=verbose)
 
         end_time_train = time.time()
 
@@ -330,6 +349,15 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
     recov[m_mask] = recovery[m_mask]
 
     # reshape (B, V, T) -> (T, B*V)
+    recovery = recovery.transpose(2,0,1).reshape(nbr_features, -1)
     recov = recov.transpose(2,0,1).reshape(nbr_features, -1)
+
+    if ground_truth is not None:
+        print("Model evaluation...")
+        result = evaluate(model, incomp_data_model, ground_truth, m_mask, inference_batch_size)
+        return recov, recovery, result
+
+    if return_no_gt_imputation:
+        return recov, recovery
     
     return recov

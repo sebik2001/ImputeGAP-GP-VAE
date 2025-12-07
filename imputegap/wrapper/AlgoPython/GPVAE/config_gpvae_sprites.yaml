@@ -33,7 +33,7 @@ image_shape: [64,64,3]
 # -------------------------
 encoder_sizes: [32, 256, 256]   # Layer sizes of the encoder
 window_size: 3                  # Windows size for the encoder CNN
-cov_activation: sigmoid         # (<sigmoid|softplus>), encoder mapped covariance activation
+cov_activation: softplus        # (<sigmoid|softplus>), encoder mapped covariance activation
 
 # -------------------------
 # Latent space

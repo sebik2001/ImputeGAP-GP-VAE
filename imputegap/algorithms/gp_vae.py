@@ -2,7 +2,7 @@ import time
 from imputegap.wrapper.AlgoPython.GPVAE.runnerGPVAE import gpvae_recovery
 
 
-def gp_vae(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=1, batch_size=64, beta=0.2, learning_rate=0.001, sigma=1.0, length_scale=7.0, kernel_scales=1, verbose=True, logs=True):
+def gp_vae(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=1, batch_size=64, beta=0.2, learning_rate=0.001, sigma=1.0, length_scale=7.0, kernel_scales=1, ground_truth=None,return_no_gt_imputation=False, verbose=True, logs=True):
     """
     Perform imputation using the BRITS algorithm.
 
@@ -29,6 +29,8 @@ def gp_vae(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=1, b
         Length scale value for the GP prior (default is 7.0)
     kernel_scales: int
         number of different length scales for the GP prior, length_scale/2^0, length_scale/2^1, ..., length_scale/2^i, with i = [0, kernel_scales - 1] (default is 1)
+    ground_truth: numpy.ndarray
+    return_no_gt_imputation: bool
     verbose : bool, optional
         Whether to display the contamination information (default is True).
 
@@ -53,7 +55,7 @@ def gp_vae(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=1, b
     start_time = time.time()  # Record start time
 
     # Imputation
-    recov_data = gpvae_recovery(incomp_data,config_yaml_path, model_checkpoint_path=model_checkpoint_path, epoch=epoch, batch_size=batch_size, beta=beta, learning_rate=learning_rate, sigma=sigma, length_scale=length_scale, kernel_scales=kernel_scales, verbose=verbose)
+    recov_data = gpvae_recovery(incomp_data,config_yaml_path, model_checkpoint_path=model_checkpoint_path, epoch=epoch, batch_size=batch_size, beta=beta, learning_rate=learning_rate, sigma=sigma, length_scale=length_scale, kernel_scales=kernel_scales, ground_truth=ground_truth, return_no_gt_imputation=return_no_gt_imputation, verbose=verbose)
 
     end_time = time.time()
     if logs and verbose:
