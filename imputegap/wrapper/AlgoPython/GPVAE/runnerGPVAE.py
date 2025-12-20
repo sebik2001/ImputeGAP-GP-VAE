@@ -269,7 +269,8 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
         # pass a dummy input to both encoder and decoder in order to get the summaries
         dummy_encoder = tf.zeros([1, seq_length, nbr_features])
         dummy_decoder = tf.zeros([1, seq_length, latent_dim])
-        if image_shape:
+        
+        if image_shape is not None and model.preprocessor is not None:
             dummy_preprocessor = tf.zeros([1, *image_shape])
             model.preprocessor(dummy_preprocessor)
             print("Preprocessor: ", model.preprocessor.net.summary())
@@ -309,7 +310,7 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
         
         outdir = './imputegap_assets/models/' + time.strftime("%Y%m%d_%H%M%S")
 
-        model = train(model, incomp_data_model, m_mask, splits, batch_size, epoch, scheduler_cfg, learning_rate, gradient_clip, outdir, verbose=verbose)
+        model = train(model, incomp_data_model, m_mask, splits, batch_size, epoch, scheduler_cfg, learning_rate, gradient_clip, outdir)
 
         end_time_train = time.time()
 
@@ -355,6 +356,8 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
     if ground_truth is not None:
         print("Model evaluation...")
         result = evaluate(model, incomp_data_model, ground_truth, m_mask, inference_batch_size)
+        # reset incomp_dat with nan values
+        incomp_data[m_mask] = np.nan
         return recov, recovery, result
 
     if return_no_gt_imputation:
