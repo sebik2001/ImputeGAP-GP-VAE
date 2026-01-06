@@ -63,5 +63,6 @@ optimizer:
   scheduler:
     type: Constant
 epoch: 20
+batch_size: 64
 beta: 0.8
 gradient_clip: 10000.0    # Maximum global gradient norm for the gradient clipping

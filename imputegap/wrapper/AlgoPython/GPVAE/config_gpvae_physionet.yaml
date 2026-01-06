@@ -64,5 +64,6 @@ optimizer:
     decay_rate: 0.5
     staircase: True
 epoch: 40
+batch_size: 64
 beta: 0.2
 gradient_clip: 10000.0 # Maximum global gradient norm for the gradient clipping
