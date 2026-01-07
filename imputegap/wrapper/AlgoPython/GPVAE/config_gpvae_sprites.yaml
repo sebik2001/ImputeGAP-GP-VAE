@@ -3,7 +3,7 @@
 # -------------------------
 # Dataset splits 
 # -------------------------
-splits: [72000, 21312]      # nr of samples in train, val, test
+splits: [9000, 2664]      # nr of samples in train, val, test
 # splits: [900, 100]
 inference_batch_size: 64
 
