@@ -18,7 +18,7 @@ def train(model, incomp_data, m_mask, splits, batch_size, epoch, scheduler_cfg, 
     m_train_miss = m_mask[:splits[0]]
 
     x_val_miss = incomp_data[splits[0]:splits[0]+splits[1]]
-    m_val_miss = incomp_data[splits[0]:splits[0]+splits[1]]
+    m_val_miss = m_mask[splits[0]:splits[0]+splits[1]]
 
     num_steps = epoch * len(x_train_miss) // batch_size
 
