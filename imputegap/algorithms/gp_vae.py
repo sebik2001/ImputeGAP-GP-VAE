@@ -2,7 +2,7 @@ import time
 from imputegap.wrapper.AlgoPython.GPVAE.runnerGPVAE import gpvae_recovery
 
 
-def gp_vae(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=None, batch_size=None, beta=None, learning_rate=None, sigma=None, length_scale=None, kernel_scales=None, ground_truth=None,return_no_gt_imputation=False, verbose=True, logs=True):
+def gp_vae(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=None, batch_size=None, beta=None, learning_rate=None, sigma=None, length_scale=None, kernel_scales=None, ground_truth=None, return_no_gt_imputation=False, y_val=None, verbose=True, logs=True):
     """
     Perform imputation using the BRITS algorithm.
 
@@ -30,7 +30,11 @@ def gp_vae(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=None
     kernel_scales: int
         number of different length scales for the GP prior, length_scale/2^0, length_scale/2^1, ..., length_scale/2^i, with i = [0, kernel_scales - 1] (default is 1)
     ground_truth: numpy.ndarray
+        Needed to compute evaluation NLL and MSE.
     return_no_gt_imputation: bool
+        Whether to return the imputation of the GP-VAE before reinserting observed values or not.
+    y_val: numpy.ndarray
+        Needed to compute AUROC and AUPRC
     verbose : bool, optional
         Whether to display the contamination information (default is True).
 
@@ -55,7 +59,7 @@ def gp_vae(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=None
     start_time = time.time()  # Record start time
 
     # Imputation
-    recov_data = gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=model_checkpoint_path, epoch=epoch, batch_size=batch_size, beta=beta, learning_rate=learning_rate, sigma=sigma, length_scale=length_scale, kernel_scales=kernel_scales, ground_truth=ground_truth, return_no_gt_imputation=return_no_gt_imputation, verbose=verbose)
+    recov_data = gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=model_checkpoint_path, epoch=epoch, batch_size=batch_size, beta=beta, learning_rate=learning_rate, sigma=sigma, length_scale=length_scale, kernel_scales=kernel_scales, ground_truth=ground_truth, return_no_gt_imputation=return_no_gt_imputation, y_val=y_val, verbose=verbose)
 
     end_time = time.time()
     if logs and verbose:

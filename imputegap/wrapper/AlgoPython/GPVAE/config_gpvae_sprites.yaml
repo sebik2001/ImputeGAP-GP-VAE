@@ -5,7 +5,7 @@
 # -------------------------
 splits: [9000, 2664]      # nr of samples in train, val, test
 # splits: [900, 100]
-inference_batch_size: 64
+inference_batch_size: 16
 
 # -------------------------
 # Data structure
@@ -66,3 +66,10 @@ epoch: 20
 batch_size: 64
 beta: 0.1
 gradient_clip: 10000.0    # Maximum global gradient norm for the gradient clipping
+
+# -------------------------
+# Evalutation
+# -------------------------
+evaluation:
+  binary: False
+  compute_auroc: False

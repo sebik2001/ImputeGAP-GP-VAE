@@ -6,7 +6,10 @@ from tqdm import tqdm
 
 import numpy as np
 import tensorflow as tf
-from imputegap.wrapper.AlgoPython.GPVAE.models.models import BandedJointEncoder, GP_VAE, GaussianDecoder, BernoulliDecoder, ImagePreprocessor 
+from imputegap.wrapper.AlgoPython.GPVAE.models.models import BandedJointEncoder, GP_VAE, GaussianDecoder, BernoulliDecoder, ImagePreprocessor
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score, average_precision_score
 
 
 def train(model, incomp_data, m_mask, splits, batch_size, epoch, scheduler_cfg, learning_rate, gradient_clip, outdir):
@@ -160,27 +163,117 @@ def impute(model, incomp_data, inference_batch_size):
     return recovery
 
 
-def evaluate(model, incomp_data, ground_truth, mask, inference_batch_size, binary=True):
+def evaluate(model, incomp_data, ground_truth, mask, inference_batch_size, time_length, data_dim, binary=True, y_val=None, eval_cfg=None):
     assert incomp_data.shape == ground_truth.shape and incomp_data.shape == mask.shape, f"incomp_data, gt and mask shape have to be the same, respectively {incomp_data.shape}, {ground_truth.shape}, {mask.shape}"
     
-    incomp_data_batches = [incomp_data[i: i+inference_batch_size] for i in range(0, len(incomp_data), inference_batch_size)]
-    ground_truth_batches = [ground_truth[i: i+inference_batch_size] for i in range(0, len(ground_truth), inference_batch_size)]
-    mask_batches = [mask[i: i+inference_batch_size] for i in range(0, len(mask), inference_batch_size)]
+    incomp_data_batches = [
+        incomp_data[i: i+inference_batch_size]
+        for i in range(0, len(incomp_data), inference_batch_size)
+    ]
 
-    get_val_batches = lambda: zip(incomp_data_batches, ground_truth_batches, mask_batches)
+    no_ground_truth = False
+    if ground_truth is not None:
+        ground_truth_batches = [
+            ground_truth[i: i+inference_batch_size]
+            for i in range(0, len(ground_truth), inference_batch_size)
+        ]
+    else:
+        no_ground_truth = True
+        ground_truth_batches = np.zeros(incomp_data.shape)
+    
+
+    mask_batches = [
+        mask[i: i+inference_batch_size]
+        for i in range(0, len(mask), inference_batch_size)
+    ]
+
+    get_val_batches = lambda: zip(
+        incomp_data_batches, ground_truth_batches, mask_batches
+    )
 
     n_missings = mask.sum()
 
-    nll_miss = np.sum([model.compute_nll(x, y=y, m_mask=m).numpy()
-                       for x, y, m in get_val_batches()]) / n_missings
-    mse_miss = np.sum([model.compute_mse(x, y=y, m_mask=m, binary=binary).numpy()
-                       for x, y, m in get_val_batches()]) / n_missings
+    nll_sum = 0.0
+    mse_sum = 0.0
+    imputed_batches = []
+
+    print("binary:", binary)
+
+    for x, y, m in tqdm(get_val_batches(), total=len(incomp_data_batches)):
+        if not no_ground_truth:
+            nll_sum += model.compute_nll(x, y=y, m_mask=m).numpy()
+            mse_sum += model.compute_mse(x, y=y, m_mask=m, binary=binary).numpy()
+
+        # Needed for AUROC
+        z = model.encode(x).mean().numpy()
+        x_hat = model.decode(z).mean().numpy()
+        # restore observed values
+        x_hat[m == 0] = x[m == 0]
+        imputed_batches.append(x_hat)
+
+    print("NLL sum:", nll_sum)
+    print("MSE sum:", mse_sum)
+    print("n_missings:", n_missings)
+    nll_miss = nll_sum / n_missings
+    mse_miss = mse_sum / n_missings
+
+    results = {
+        "nll": nll_miss,
+        "mse": mse_miss,
+    }
+
+    # -----------------------
+    # AUROC / AUPRC
+    # -----------------------
+    if y_val is not None:
+        x_val_imputed = np.vstack(imputed_batches)
+
+        cls_cfg = eval_cfg['classification']
+
+        x_eval = x_val_imputed.copy()
+
+        if cls_cfg.get("rounding", False):
+            x_eval = np.round(x_eval)
+        
+        x_eval = x_eval.reshape([-1, time_length * data_dim])
+        val_split = len(x_eval) // 2
+
+        if eval_cfg['classifier'] == 'logistic_regression':
+            clf = LogisticRegression(
+                solver=cls_cfg.get("solver", "lbfgs"),
+                tol=float(cls_cfg.get("tol", 1e-10)),
+                max_iter=cls_cfg.get("max_iter", 10000),
+                multi_class="multinomial" if cls_cfg["task"] == "multiclass" else "auto",
+            )
+
+            clf.fit(x_eval[:val_split], y_val[:val_split])
+            probs = clf.predict_proba(x_eval[val_split:])
+
+            if cls_cfg["task"] == "multiclass":
+                num_classes = cls_cfg["num_classes"]
+                auprc = average_precision_score(
+                np.eye(num_classes)[y_val[val_split:]], probs
+                )
+                auroc = roc_auc_score(
+                    np.eye(num_classes)[y_val[val_split:]], probs
+                )
+            else:
+                probs = probs[:, 1]
+                auprc = average_precision_score(y_val[val_split:], probs)
+                auroc = roc_auc_score(y_val[val_split:], probs)
+        else:
+            print("Classifier type not implemented...")
+            auroc, auprc = 0.0, 0.0
+
+        results.update({
+            "auroc": auroc,
+            "auprc": auprc,
+        })
     
-    return {"nll": nll_miss, "mse": mse_miss}
+    return results
 
 
-
-def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=None, batch_size=None, beta=None, learning_rate=None, sigma=None, length_scale=None, kernel_scales=None, inference_batch_size=None, ground_truth=None, return_no_gt_imputation=False, verbose=True):
+def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=None, batch_size=None, beta=None, learning_rate=None, sigma=None, length_scale=None, kernel_scales=None, inference_batch_size=None, ground_truth=None, return_no_gt_imputation=False, y_val=None, verbose=True):
     recov = np.copy(incomp_data)
     m_mask = np.isnan(incomp_data)
 
@@ -233,6 +326,12 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
 
     # learning rate scheduler
     scheduler_cfg = cfg["optimizer"].get("scheduler", {"type": None})
+
+    # evaluation configuration (AUROC/AUPRC)
+    eval_cfg = cfg["evaluation"]
+    binary = eval_cfg["binary"]
+    if not eval_cfg['compute_auroc']:
+        eval_cfg = None
 
     #---------------------- Reshape the data to (B,V,T) ------------------------
     recov = recov.transpose().reshape(-1, seq_length, nbr_features)  
@@ -353,10 +452,11 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
     recovery = recovery.transpose(2,0,1).reshape(nbr_features, -1)
     recov = recov.transpose(2,0,1).reshape(nbr_features, -1)
 
-    if ground_truth is not None:
+    if ground_truth is not None or y_val is not None:
         print("Model evaluation...")
-        result = evaluate(model, incomp_data_model, ground_truth, m_mask, inference_batch_size)
-        # reset incomp_dat with nan values
+        result = evaluate(model, incomp_data_model, ground_truth, m_mask, inference_batch_size, data_dim=nbr_features, 
+        time_length=seq_length, y_val=y_val, eval_cfg=eval_cfg, binary=binary)
+        # reset incomp_data with nan values
         incomp_data[m_mask] = np.nan
         return recov, recovery, result
 

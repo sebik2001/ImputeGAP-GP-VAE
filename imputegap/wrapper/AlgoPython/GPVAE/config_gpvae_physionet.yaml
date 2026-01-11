@@ -67,3 +67,19 @@ epoch: 40
 batch_size: 64
 beta: 0.2
 gradient_clip: 10000.0 # Maximum global gradient norm for the gradient clipping
+
+# -------------------------
+# Evalutation
+# -------------------------
+evaluation:
+  compute_auroc: True
+  binary: False
+  classifier: logistic_regression
+
+  classification:
+    task: binary            # <binary|multiclass>
+    num_classes: 2          # only for multiclass
+    rounding: false         # round imputed values (e.g. hmnist)
+    solver: liblinear       # liblinear | lbfgs
+    max_iter: 10000
+    tol: 1.0e-10
