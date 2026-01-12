@@ -108,7 +108,7 @@ def train(model, incomp_data, m_mask, splits, batch_size, epoch, scheduler_cfg, 
                     losses_val.append(avg_losses[0])
                     nll_losses_val.append(avg_losses[1])
                     kl_losses_val.append(avg_losses[2])
-                    print("Validation loss = {:.3f} | NLL = {:.3f} | KL = {:.3f}".format(avg_losses[0], avg_losses[1], avg_losses[2]))
+                    print("Validation loss = {:.3f} | NLL = {:.3f} | KL = {:.3f}\n".format(avg_losses[0], avg_losses[1], avg_losses[2]))
 
                     tf.summary.scalar("loss_val", avg_losses[0], step=global_step)
                     tf.summary.scalar("nll_val", avg_losses[1], step=global_step)
@@ -197,8 +197,6 @@ def evaluate(model, incomp_data, ground_truth, mask, inference_batch_size, time_
     mse_sum = 0.0
     imputed_batches = []
 
-    print("binary:", binary)
-
     for x, y, m in tqdm(get_val_batches(), total=len(incomp_data_batches)):
         if not no_ground_truth:
             nll_sum += model.compute_nll(x, y=y, m_mask=m).numpy()
@@ -211,9 +209,6 @@ def evaluate(model, incomp_data, ground_truth, mask, inference_batch_size, time_
         x_hat[m == 0] = x[m == 0]
         imputed_batches.append(x_hat)
 
-    print("NLL sum:", nll_sum)
-    print("MSE sum:", mse_sum)
-    print("n_missings:", n_missings)
     nll_miss = nll_sum / n_missings
     mse_miss = mse_sum / n_missings
 
@@ -382,7 +377,7 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
     #---------------- Reload the model ------------------------------
     if model_checkpoint_path is not None:
         if not os.path.exists(model_checkpoint_path):
-            print("Invalid Path to the model checkpoint!")
+            raise Exception("Invalid Path to the model checkpoint!")
         else:
             if image_preprocessor:
                 checkpoint = tf.train.Checkpoint(
@@ -456,6 +451,27 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
         print("Model evaluation...")
         result = evaluate(model, incomp_data_model, ground_truth, m_mask, inference_batch_size, data_dim=nbr_features, 
         time_length=seq_length, y_val=y_val, eval_cfg=eval_cfg, binary=binary)
+
+        # save result in results.csv file inside the checkpoints folder
+        if model_checkpoint_path is not None:
+            save_result_path = os.path.join(model_checkpoint_path, 'results.csv')
+        else:
+            save_result_path = os.path.join(outdir, 'results.csv')
+        header_str = ""
+        row_str = ""
+        for i, (key, val) in enumerate(result.items()):
+            header_str += key
+            row_str += str(val)
+            if i == len(result) - 1:
+                header_str += '\n'
+                row_str += '\n'
+                continue
+            header_str += ','
+            row_str += ','
+        with open(save_result_path, 'w') as outfile:
+            outfile.write(header_str)
+            outfile.write(row_str)
+        
         # reset incomp_data with nan values
         incomp_data[m_mask] = np.nan
         return recov, recovery, result
