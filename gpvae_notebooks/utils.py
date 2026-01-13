@@ -23,7 +23,7 @@ def create_imputation_plot(image_shape, time_length, miss, imputed_no_gt, impute
 
 
 # mask given as (S, V, T)
-def compute_mask_stastics(mask): 
+def compute_mask_statistics(mask):
   s, v, t = mask.shape
   miss_per_img = np.sum(mask, axis=2).reshape(-1) / t
   img_avg, img_std = np.mean(miss_per_img), np.std(miss_per_img)
@@ -39,6 +39,47 @@ def compute_mask_stastics(mask):
   series_std = np.std(miss_per_series, axis=1)
 
   return ((img_avg, img_std), (sample_avg, sample_std), tot_miss_ratio, (np.mean(series_avg), np.mean(series_std)))
+
+def compute_mask_statistics_v2(mask, values=None, target_value=None):
+    """
+    mask: binary array (1 = missing), shape (s, v, t)
+    values: original data array, same shape as mask
+    target_value: value to condition missingness on (e.g. 1 for white pixels)
+    """
+
+    s, v, t = mask.shape
+
+    # If conditioning on a value
+    if values is not None and target_value is not None:
+        value_mask = (values == target_value)
+        effective_mask = mask & value_mask
+        denom = np.sum(value_mask)
+    else:
+        effective_mask = mask
+        denom = s * v * t
+
+    # ---- Per-image missingness ----
+    miss_per_img = np.sum(effective_mask, axis=2).reshape(-1)
+    img_denom = np.sum(value_mask, axis=2).reshape(-1) if values is not None and target_value is not None else t
+    miss_per_img = np.divide(miss_per_img, img_denom, where=img_denom > 0)
+
+    img_avg, img_std = np.mean(miss_per_img), np.std(miss_per_img)
+
+    # ---- Per-sample missingness ----
+    miss_per_sample = np.sum(effective_mask, axis=(1, 2))
+    sample_denom = np.sum(value_mask, axis=(1, 2)) if values is not None and target_value is not None else v * t
+    miss_per_sample = np.divide(miss_per_sample, sample_denom, where=sample_denom > 0)
+
+    sample_avg, sample_std = np.mean(miss_per_sample), np.std(miss_per_sample)
+
+    # ---- Total missingness ----
+    tot_miss_ratio = np.sum(effective_mask) / denom if denom > 0 else 0.0
+
+    return (
+        (img_avg, img_std),
+        (sample_avg, sample_std),
+        tot_miss_ratio
+    )
 
 
 def plot_training_results(path):
