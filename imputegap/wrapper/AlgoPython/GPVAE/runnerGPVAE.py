@@ -171,14 +171,12 @@ def evaluate(model, incomp_data, ground_truth, mask, inference_batch_size, time_
         for i in range(0, len(incomp_data), inference_batch_size)
     ]
 
-    no_ground_truth = False
     if ground_truth is not None:
         ground_truth_batches = [
             ground_truth[i: i+inference_batch_size]
             for i in range(0, len(ground_truth), inference_batch_size)
         ]
     else:
-        no_ground_truth = True
         ground_truth_batches = np.zeros(incomp_data.shape)
     
 
@@ -198,13 +196,14 @@ def evaluate(model, incomp_data, ground_truth, mask, inference_batch_size, time_
     imputed_batches = []
 
     for x, y, m in tqdm(get_val_batches(), total=len(incomp_data_batches)):
-        if not no_ground_truth:
+        if ground_truth is not None:
             nll_sum += model.compute_nll(x, y=y, m_mask=m).numpy()
             mse_sum += model.compute_mse(x, y=y, m_mask=m, binary=binary).numpy()
 
         # Needed for AUROC
         z = model.encode(x).mean().numpy()
         x_hat = model.decode(z).mean().numpy()
+        
         # restore observed values
         x_hat[m == 0] = x[m == 0]
         imputed_batches.append(x_hat)
@@ -268,7 +267,7 @@ def evaluate(model, incomp_data, ground_truth, mask, inference_batch_size, time_
     return results
 
 
-def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=None, batch_size=None, beta=None, learning_rate=None, sigma=None, length_scale=None, kernel_scales=None, inference_batch_size=None, ground_truth=None, return_no_gt_imputation=False, y_val=None, verbose=True):
+def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=None, batch_size=None, beta=None, learning_rate=None, sigma=None, length_scale=None, kernel_scales=None, inference_batch_size=None, ground_truth=None, y_val=None, return_no_gt_imputation=False, verbose=True):
     recov = np.copy(incomp_data)
     m_mask = np.isnan(incomp_data)
 
@@ -309,7 +308,7 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
     
     gradient_clip = cfg.get("gradient_clip", 10000.0)
 
-    # use the one from the config if not passed as arguments
+    # use the one from the config if not passed as arguments (from the function call it is possible to overwrite the config.yaml)
     epoch = cfg["epoch"] if epoch is None else epoch
     batch_size = cfg["batch_size"] if batch_size is None else batch_size
     beta = cfg["beta"] if beta is None else beta
@@ -360,7 +359,7 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
     )
 
     if verbose:
-        # pass a dummy input to both encoder and decoder in order to get the summaries
+        # pass a dummy input to both encoder and decoder in order to get the net summaries
         dummy_encoder = tf.zeros([1, seq_length, nbr_features])
         dummy_decoder = tf.zeros([1, seq_length, latent_dim])
         
@@ -374,7 +373,7 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
         print("Encoder: ", model.encoder.net.summary())
         print("Decoder: ", model.decoder.net.summary())
 
-    #---------------- Reload the model ------------------------------
+    #---------------- Reload the last checkpoint ------------------------------
     if model_checkpoint_path is not None:
         if not os.path.exists(model_checkpoint_path):
             raise Exception("Invalid Path to the model checkpoint!")
@@ -410,7 +409,7 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
 
         if verbose: print(f"\n> logs: Training gpvae - Execution Time: {(end_time_train - start_time_train):.4f} seconds\n")
 
-        # save a .yaml file containing details about the training
+        # save a .yaml file containing details about the training in the same folder where checkpoint are saved (outdir)
         updated_cfg = copy.deepcopy(cfg)
 
         updated_cfg["epoch"] = epoch
@@ -441,22 +440,33 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
 
     if verbose: print(f"\n> logs: Imputing with gpvae - Execution Time: {(end_time_impute - start_time_impute):.4f} seconds\n")
 
+    # keep observed values and substituted missing values with imputed ones
     recov[m_mask] = recovery[m_mask]
 
     # reshape (B, V, T) -> (T, B*V)
     recovery = recovery.transpose(2,0,1).reshape(nbr_features, -1)
     recov = recov.transpose(2,0,1).reshape(nbr_features, -1)
 
+    # ---------------- Evaluate model --------------------------------------  
     if ground_truth is not None or y_val is not None:
-        print("Model evaluation...")
+        start_time_evaluate = time.time()
+
+        if verbose: print("Model evaluation...")
+
         result = evaluate(model, incomp_data_model, ground_truth, m_mask, inference_batch_size, data_dim=nbr_features, 
         time_length=seq_length, y_val=y_val, eval_cfg=eval_cfg, binary=binary)
+
+        end_time_evaluate = time.time()
+
+        if verbose: print(f"\n> logs: Evaluating gpvae - Execution Time: {(end_time_evaluate - start_time_evaluate):.4f} seconds\n")
 
         # save result in results.csv file inside the checkpoints folder
         if model_checkpoint_path is not None:
             save_result_path = os.path.join(model_checkpoint_path, 'results.csv')
         else:
             save_result_path = os.path.join(outdir, 'results.csv')
+
+        # write csv file
         header_str = ""
         row_str = ""
         for i, (key, val) in enumerate(result.items()):

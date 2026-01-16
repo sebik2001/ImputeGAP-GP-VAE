@@ -2,7 +2,7 @@ import time
 from imputegap.wrapper.AlgoPython.GPVAE.runnerGPVAE import gpvae_recovery
 
 
-def gp_vae(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=None, batch_size=None, beta=None, learning_rate=None, sigma=None, length_scale=None, kernel_scales=None, ground_truth=None, return_no_gt_imputation=False, y_val=None, verbose=True, logs=True):
+def gp_vae(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=None, batch_size=None, beta=None, learning_rate=None, sigma=None, length_scale=None, kernel_scales=None, ground_truth=None, y_val=None, return_no_gt_imputation=False, verbose=True, logs=True):
     """
     Perform imputation using the BRITS algorithm.
 
@@ -11,30 +11,31 @@ def gp_vae(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=None
     incomp_data : numpy.ndarray
         The input matrix with contamination (missing values represented as NaNs).
     config_yaml_path : str
-        The path to the config .yaml file for the dataset
+        The path to the config .yaml file for the dataset and the model
     model_checkpoint_path : str
         Specify the path to a trained model, use an already trained model. If None
-        then a training will be done.
+        then a new model will be trained.
     epoch : int
-        Number of epochs for training the model. Determines how many times the algorithm processes the entire dataset during training. If no training is needed it is ignored (default is 1)
+        Number of epochs for training the model. Determines how many times the algorithm processes the entire dataset during training. If no training is needed it is ignored (default coming from config_yaml_path)
     batch_size : int
-        Size of the batches used during training. Larger batch sizes can speed up training but may require more memory (default is 64)
+        Size of the batches used during training. Larger batch sizes can speed up training but may require more memory (default coming from config_yaml_path).
     beta: float
-        Factor to weigh the KL term (similar to beta-VAE) (default is 0.2)
+        Factor to weigh the KL term (similar to beta-VAE) (default coming from config_yaml_path)
     learning_rate: float
-        Learning rate for training (default: 0.001)
+        Learning rate for training (default coming from config_yaml_path)
     sigma: float
-        Sigma value for the GP prior (default is 1.0)
+        Sigma value for the GP prior (default coming from config_yaml_path)
     length_scale: float
-        Length scale value for the GP prior (default is 7.0)
+        Length scale value for the GP prior (default coming from config_yaml_path)
     kernel_scales: int
-        number of different length scales for the GP prior, length_scale/2^0, length_scale/2^1, ..., length_scale/2^i, with i = [0, kernel_scales - 1] (default is 1)
+        number of different length scales for the GP prior, length_scale/2^0, length_scale/2^1, ..., length_scale/2^i, with i = [0, kernel_scales - 1] (default coming from config_yaml_path)
     ground_truth: numpy.ndarray
-        Needed to compute evaluation NLL and MSE.
-    return_no_gt_imputation: bool
-        Whether to return the imputation of the GP-VAE before reinserting observed values or not.
+        May be passed in order to evaluate the model performance on the validation dataset by computing MSE.
     y_val: numpy.ndarray
-        Needed to compute AUROC and AUPRC
+        May be passed in order to evaluate the model performance by computing AUROC and AUPRC. Downstream
+        classification task.
+    return_no_gt_imputation: bool
+        Whether to return additionaly the imputation of the GP-VAE before reinserting observed values (ground truths) or not. (default is False)
     verbose : bool, optional
         Whether to display the contamination information (default is True).
 
@@ -45,6 +46,7 @@ def gp_vae(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=None
 
     Notes
     -----
+    TODO: Machine learning-based approach or Deep learning-based approach?
     The GP-VAE algorithm is a machine learning-based approach for time series imputation, where missing values are recovered using a Variational Auto-Encoder (VAE) with a Gaussian process (GP) prior.
 
     Example
@@ -59,7 +61,7 @@ def gp_vae(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=None
     start_time = time.time()  # Record start time
 
     # Imputation
-    recov_data = gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=model_checkpoint_path, epoch=epoch, batch_size=batch_size, beta=beta, learning_rate=learning_rate, sigma=sigma, length_scale=length_scale, kernel_scales=kernel_scales, ground_truth=ground_truth, return_no_gt_imputation=return_no_gt_imputation, y_val=y_val, verbose=verbose)
+    recov_data, _ = gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=model_checkpoint_path, epoch=epoch, batch_size=batch_size, beta=beta, learning_rate=learning_rate, sigma=sigma, length_scale=length_scale, kernel_scales=kernel_scales, ground_truth=ground_truth, y_val=y_val, return_no_gt_imputation=return_no_gt_imputation, verbose=verbose)
 
     end_time = time.time()
     if logs and verbose:

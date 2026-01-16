@@ -5,7 +5,7 @@ from imputegap.recovery.evaluation import Evaluation
 
 not_optimized = ["knn", "interpolation", "iterative_svd", "grouse", "dynammo", "rosl", "soft_impute", "spirit", "svt",
                  "tkcm", "deep_mvi", "brits", "mpin", "pristi", "bay_otide", "bit_graph", "gain", "grin", "hkmf_t",
-                 "mice", "miss_forest", "miss_net", "trmf", "xgboost"]
+                 "mice", "miss_forest", "miss_net", "trmf", "xgboost", "gpvae"]
 
 
 class BaseImputer:
@@ -1726,6 +1726,8 @@ class Imputation:
             Imputation method using Bayesian Online Multivariate Time Series Imputation with functional decomposition.
         HKMF_T :
             Imputation method using Hankel Matrix Factorization to recover from blackouts in tagged time series.
+        GPVAE :
+            Imputation method using GP VAE for Deep Probabilistic Mutilvariate Time Series Imputation.
         """
 
 
@@ -2794,6 +2796,122 @@ class Imputation:
                     seq_length, patch_size, batch_size, pred_length, label_length, enc_in, dec_in, c_out, gpt_layers, num_workers, seed = utils.load_parameters(query="default", algorithm=self.algorithm, verbose=self.verbose)
 
                 self.recov_data = gpt4ts(incomp_data=self.incomp_data,  seq_length=seq_length, patch_size=patch_size, batch_size=batch_size, pred_length=pred_length, label_length=label_length, enc_in=enc_in, dec_in=dec_in, c_out=c_out, gpt_layers=gpt_layers, num_workers=num_workers, tr_ratio=tr_ratio, seed=seed, logs=self.logs, verbose=self.verbose)
+
+                return self
+          
+        class GPVAE(BaseImputer):
+            """
+            GPVAE class to impute missing values with the GPVAE Deep Probabilistic Multivariate Time Series Imputation.
+
+            Methods
+            -------
+            impute(self, params=None):
+                Perform imputation by replacing missing values with the mean value of the ground truth.
+            """
+            algorithm = "gpvae"
+
+            def impute(self, params, user_def=True):
+                """
+                Perform imputation using GPVAE (Deep Probabilistic Multivariate Time Series Imputation).
+
+                Parameters
+                ----------
+                params : dict
+                    Parameters of the GPVAE configuration.
+
+                user_def : bool, optional
+                    Whether to use user-defined or default parameters (default is True) - Default values not implemented.
+                    
+
+                    **Algorithm parameters:**
+
+                        incomp_data : numpy.ndarray
+                            The input matrix with contamination (missing values represented as NaNs).
+
+                        config_yaml_path : str
+                            The path to the config .yaml file for the dataset and the model
+
+                        model_checkpoint_path : str
+                            Specify the path to a trained model, use an already trained model. If None
+                            then a new model will be trained.
+
+                        epoch : int
+                            Number of epochs for training the model. Determines how many times the algorithm processes the entire dataset during training. If no training is needed it is ignored (default coming from config_yaml_path)
+
+                        batch_size : int
+                            Size of the batches used during training. Larger batch sizes can speed up training but may require more memory (default coming from config_yaml_path).
+
+                        beta: float
+                            Factor to weigh the KL term (similar to beta-VAE) (default coming from config_yaml_path)
+
+                        learning_rate: float
+                            Learning rate for training (default coming from config_yaml_path)
+
+                        sigma: float
+                            Sigma value for the GP prior (default coming from config_yaml_path)
+
+                        length_scale: float
+                            Length scale value for the GP prior (default coming from config_yaml_path)
+
+                        kernel_scales: int
+                            number of different length scales for the GP prior, length_scale/2^0, length_scale/2^1, ..., length_scale/2^i, with i = [0, kernel_scales - 1] (default coming from config_yaml_path)
+
+                        ground_truth: numpy.ndarray
+                            May be passed in order to evaluate the model performance on the validation dataset by computing MSE.
+
+                        y_val: numpy.ndarray
+                            May be passed in order to evaluate the model performance by computing AUROC and AUPRC. Downstream
+                            classification task.
+
+                        return_no_gt_imputation: bool
+                            Whether to return additionaly the imputation of the GP-VAE before reinserting observed values (ground truths) or not. (default is False)
+
+                        verbose : bool, optional
+                            Whether to display the contamination information (default is True).
+
+
+                Returns
+                -------
+                self : GPVAE
+                    GPVAE object with `recov_data` set.
+
+                Example
+                -------
+                    >>> gpt4ts_imputer = Imputation.LLMs.GPT4TS(incomp_data)
+                    >>> gpt4ts_imputer.impute()  # default parameters for imputation > or
+                    >>> gpt4ts_imputer.impute(user_def=True, params={"seq_length":-1, "patch_size":-1, "batch_size":-1, "pred_length":-1, "label_length":-1, "enc_in":10, "dec_in":10, "c_out": 10, "gpt_layers":6, "num_workers":0, "seed":42})  # user defined> or
+                    >>> gpt4ts_imputer.impute(user_def=False, params={"input_data": ts.data, "optimizer": "ray_tune"})  # auto-ml with ray_tune
+                    >>> recov_data = gpt4ts_imputer.recov_data
+
+                References
+                ----------
+                Fortuin, V., Baranchuk, D., Rätsch, G. & Mandt, S. GP-VAE: Deep Probabilistic Multivariate Time Series Imputation. Proceedings of the 23rd International Conference on Artificial Intelligence and Statistics (AISTATS), PMLR 108: 1651–1661 (2020). https://proceedings.mlr.press/v108/fortuin20a/fortuin20a.pdf
+                """
+
+                from imputegap.algorithms.gp_vae import gp_vae
+                
+                self.recov_data = gp_vae(incomp_data=self.incomp_data, **params)
+
+                return self
+
+            def impute(self, user_def=True, params=None):
+                """
+                Impute missing values by replacing them with the mean value of the ground truth.
+                Template for adding external new algorithm
+
+                Parameters
+                ----------
+                params : dict, optional
+                    Dictionary of algorithm parameters (default is None).
+
+                Returns
+                -------
+                self : MinImpute
+                    The object with `recov_data` set.
+                """
+                from imputegap.algorithms.mean_impute import mean_impute
+
+                self.recov_data = mean_impute(self.incomp_data, params)
 
                 return self
 
