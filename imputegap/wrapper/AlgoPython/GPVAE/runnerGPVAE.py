@@ -484,9 +484,9 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
         
         # reset incomp_data with nan values
         incomp_data[m_mask] = np.nan
-        return recov, recovery, result
+        return recov, {'recov_no_gt': recovery, 'evaluation_metrics': result}
 
     if return_no_gt_imputation:
-        return recov, recovery
+        return recov, {'recov_no_gt': recovery}
     
-    return recov
+    return recov, {}

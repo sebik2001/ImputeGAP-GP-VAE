@@ -46,8 +46,7 @@ def gp_vae(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=None
 
     Notes
     -----
-    TODO: Machine learning-based approach or Deep learning-based approach?
-    The GP-VAE algorithm is a machine learning-based approach for time series imputation, where missing values are recovered using a Variational Auto-Encoder (VAE) with a Gaussian process (GP) prior.
+    The GP-VAE algorithm is a Deep learning-based approach for time series imputation, where missing values are recovered using a Variational Auto-Encoder (VAE) with a Gaussian process (GP) prior.
 
     Example
     -------
@@ -61,11 +60,11 @@ def gp_vae(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=None
     start_time = time.time()  # Record start time
 
     # Imputation
-    recov_data, _ = gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=model_checkpoint_path, epoch=epoch, batch_size=batch_size, beta=beta, learning_rate=learning_rate, sigma=sigma, length_scale=length_scale, kernel_scales=kernel_scales, ground_truth=ground_truth, y_val=y_val, return_no_gt_imputation=return_no_gt_imputation, verbose=verbose)
+    recov_data, extras = gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=model_checkpoint_path, epoch=epoch, batch_size=batch_size, beta=beta, learning_rate=learning_rate, sigma=sigma, length_scale=length_scale, kernel_scales=kernel_scales, ground_truth=ground_truth, y_val=y_val, return_no_gt_imputation=return_no_gt_imputation, verbose=verbose)
 
     end_time = time.time()
     if logs and verbose:
         print(f"\n> logs: imputation gpvae - Execution Time: {(end_time - start_time):.4f} seconds\n")
 
 
-    return recov_data
+    return recov_data, extras
