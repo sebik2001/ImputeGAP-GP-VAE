@@ -267,7 +267,7 @@ def evaluate(model, incomp_data, ground_truth, mask, inference_batch_size, time_
     return results
 
 
-def gpvae_recovery(incomp_data, config_yaml_path, folder_checkpoint_path=None, epoch=None, batch_size=None, beta=None, learning_rate=None, sigma=None, length_scale=None, kernel_scales=None, inference_batch_size=None, ground_truth=None, y_val=None, return_no_gt_imputation=False, verbose=True):
+def gpvae_recovery(incomp_data, config_yaml_path, folder_checkpoint_path=None, epoch=None, batch_size=None, inference_batch_size=None, beta=None, learning_rate=None, sigma=None, length_scale=None, kernel_scales=None, ground_truth=None, y_val=None, return_no_gt_imputation=False, verbose=True):
     recov = np.copy(incomp_data)
     m_mask = np.isnan(incomp_data)
 
@@ -278,13 +278,19 @@ def gpvae_recovery(incomp_data, config_yaml_path, folder_checkpoint_path=None, e
     # The config used for the training may be present in the checkpoints folder
     if folder_checkpoint_path is not None:
         dirs = os.listdir(folder_checkpoint_path)
+        config_found = False
         for dir in dirs:
             full_path = os.path.join(folder_checkpoint_path, dir)
             # overwrite config path (first .yaml file occurrence in the model checkpoint folder)
             if dir.endswith('.yaml') and os.path.isfile(full_path):
-                print("Found config file in the checkpoints folder, it is going to be use it instead of the one provided as config_yaml_path folder", dir)
+                print("Found config file in the checkpoints folder, it is going to be used instead of the one provided as config_yaml_path folder", dir)
                 config_yaml_path = full_path
+                config_found = True
                 break
+        if not config_found:
+            if not os.path.exists(config_yaml_path): raise FileNotFoundError(f"Config YAML path neither found in {config_yaml_path} and {folder_checkpoint_path}")
+            else:
+                print("Config file in the checkpoints folder not found, the one in folder_checkpoint_path will be used!")
 
     with open(config_yaml_path, "r") as f:
         cfg = yaml.safe_load(f)
