@@ -2661,14 +2661,19 @@ class Imputation:
                 self : GPVAE
                     GPVAE object with `recov_data` set.
 
-                TODO: change example
                 Example
                 -------
-                    >>> gpt4ts_imputer = Imputation.LLMs.GPT4TS(incomp_data)
-                    >>> gpt4ts_imputer.impute()  # default parameters for imputation > or
-                    >>> gpt4ts_imputer.impute(user_def=True, params={"seq_length":-1, "patch_size":-1, "batch_size":-1, "pred_length":-1, "label_length":-1, "enc_in":10, "dec_in":10, "c_out": 10, "gpt_layers":6, "num_workers":0, "seed":42})  # user defined> or
-                    >>> gpt4ts_imputer.impute(user_def=False, params={"input_data": ts.data, "optimizer": "ray_tune"})  # auto-ml with ray_tune
-                    >>> recov_data = gpt4ts_imputer.recov_data
+                    >>> # Training
+                    >>> params_train = {'config_yaml_path': 'path/to/config/file', 'epoch': 2}
+                    >>> gpvae_imputer = Imputation.DeepLearning.GPVAE(incomp_data) # training
+                    >>> gpvae_imputer.impute(params_train)
+                    >>> recov_data = gpvae_imputer.recov_data
+                    >>> # Evaluation
+                    >>> params_eval = {'config_yaml_path': 'path/to/config/file', 'folder_checkpoint_path': 'path/to/checkpoints/folder', "ground_truth":ground_truth, "return_no_gt_imputation":True, "y_val":y_label} # ground_truth: (S,V,T), y_val: (S,), where S: samples, V: values (nr of time steps), T: time series channels
+                    >>> gpvae_imputer.impute(params)
+                    >>> recov_data = gpvae_imputer.recov_data
+                    >>> recov_no_gt = gpvae_imputer.recov_no_gt
+                    >>> eval_metric = gpvae_imputer.evaluation_metrics
 
                 References
                 ----------
