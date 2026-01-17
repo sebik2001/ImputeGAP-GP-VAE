@@ -2618,9 +2618,8 @@ class Imputation:
                         config_yaml_path : str
                             The path to the config .yaml file for the dataset and the model
 
-                        model_checkpoint_path : str
-                            Specify the path to a trained model, use an already trained model. If None
-                            then a new model will be trained.
+                        folder_checkpoint_path : str
+                            Specify the path to a folder containing a trained model checkpoints. This folder is created automatically when a train is done, by specifying this path a new train process won't be started. If None then a new model will be trained.
 
                         epoch : int
                             Number of epochs for training the model. Determines how many times the algorithm processes the entire dataset during training. If no training is needed it is ignored (default coming from config_yaml_path)
@@ -2662,6 +2661,7 @@ class Imputation:
                 self : GPVAE
                     GPVAE object with `recov_data` set.
 
+                TODO: change example
                 Example
                 -------
                     >>> gpt4ts_imputer = Imputation.LLMs.GPT4TS(incomp_data)
@@ -2681,7 +2681,7 @@ class Imputation:
 
                 self.recov_no_gt = extras.get('recov_no_gt', None)
 
-                self.evaluation_metrics = extras.get('evaluation_metrics')
+                self.evaluation_metrics = extras.get('evaluation_metrics', None)
 
                 return self
 

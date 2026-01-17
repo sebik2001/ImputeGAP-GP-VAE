@@ -267,14 +267,25 @@ def evaluate(model, incomp_data, ground_truth, mask, inference_batch_size, time_
     return results
 
 
-def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, epoch=None, batch_size=None, beta=None, learning_rate=None, sigma=None, length_scale=None, kernel_scales=None, inference_batch_size=None, ground_truth=None, y_val=None, return_no_gt_imputation=False, verbose=True):
+def gpvae_recovery(incomp_data, config_yaml_path, folder_checkpoint_path=None, epoch=None, batch_size=None, beta=None, learning_rate=None, sigma=None, length_scale=None, kernel_scales=None, inference_batch_size=None, ground_truth=None, y_val=None, return_no_gt_imputation=False, verbose=True):
     recov = np.copy(incomp_data)
     m_mask = np.isnan(incomp_data)
 
     # ----------------------- Load YAML config -----------------------------
-    if not os.path.exists(config_yaml_path):
+    if not os.path.exists(config_yaml_path) and folder_checkpoint_path is None:
         raise FileNotFoundError(f"Config YAML path '{config_yaml_path}' does not exist.")
     
+    # The config used for the training may be present in the checkpoints folder
+    if folder_checkpoint_path is not None:
+        dirs = os.listdir(folder_checkpoint_path)
+        for dir in dirs:
+            full_path = os.path.join(folder_checkpoint_path, dir)
+            # overwrite config path (first .yaml file occurrence in the model checkpoint folder)
+            if dir.endswith('.yaml') and os.path.isfile(full_path):
+                print("Found config file in the checkpoints folder, it is going to be use it instead of the one provided as config_yaml_path folder", dir)
+                config_yaml_path = full_path
+                break
+
     with open(config_yaml_path, "r") as f:
         cfg = yaml.safe_load(f)
     
@@ -374,8 +385,8 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
         print("Decoder: ", model.decoder.net.summary())
 
     #---------------- Reload the last checkpoint ------------------------------
-    if model_checkpoint_path is not None:
-        if not os.path.exists(model_checkpoint_path):
+    if folder_checkpoint_path is not None:
+        if not os.path.exists(folder_checkpoint_path):
             raise Exception("Invalid Path to the model checkpoint!")
         else:
             if image_preprocessor:
@@ -391,7 +402,7 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
                 )
 
             # restore the latest checkpoint
-            latest = tf.train.latest_checkpoint(model_checkpoint_path)
+            latest = tf.train.latest_checkpoint(folder_checkpoint_path)
             checkpoint.restore(latest).expect_partial()
             print("Checkpoint successfully restored.")
         
@@ -461,8 +472,8 @@ def gpvae_recovery(incomp_data, config_yaml_path, model_checkpoint_path=None, ep
         if verbose: print(f"\n> logs: Evaluating gpvae - Execution Time: {(end_time_evaluate - start_time_evaluate):.4f} seconds\n")
 
         # save result in results.csv file inside the checkpoints folder
-        if model_checkpoint_path is not None:
-            save_result_path = os.path.join(model_checkpoint_path, 'results.csv')
+        if folder_checkpoint_path is not None:
+            save_result_path = os.path.join(folder_checkpoint_path, 'results.csv')
         else:
             save_result_path = os.path.join(outdir, 'results.csv')
 
